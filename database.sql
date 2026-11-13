@@ -1,0 +1,52 @@
+CREATE DATABASE IF NOT EXISTS `final_project` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE `final_project`;
+
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ingredients (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    unit VARCHAR(30) NOT NULL DEFAULT 'pcs',
+    quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+    reorder_level DECIMAL(10,2) NOT NULL DEFAULT 5,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS menu_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    ingredient_id INT NOT NULL,
+    ingredient_qty DECIMAL(10,2) NOT NULL DEFAULT 1,
+    FOREIGN KEY (ingredient_id) REFERENCES ingredients(id)
+);
+
+CREATE TABLE IF NOT EXISTS purchases (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ingredient_id INT NOT NULL,
+    quantity DECIMAL(10,2) NOT NULL,
+    unit_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+    purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (ingredient_id) REFERENCES ingredients(id)
+);
+
+CREATE TABLE IF NOT EXISTS sales (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    menu_item_id INT NOT NULL,
+    quantity INT NOT NULL,
+    total DECIMAL(10,2) NOT NULL,
+    sold_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (menu_item_id) REFERENCES menu_items(id)
+);
+
+CREATE TABLE IF NOT EXISTS expenses (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    description VARCHAR(180) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    expense_date DATE NOT NULL
+);

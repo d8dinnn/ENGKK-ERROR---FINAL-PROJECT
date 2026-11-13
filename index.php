@@ -2,6 +2,18 @@
 require_once 'auth.php';
 require_once 'algorithms.php';
 
+// Format stock quantities: "pcs" are whole items, so show 100 instead of 100.00.
+// Other units (kg, L, ...) keep 2 decimals.
+function qty($value, $unit = ''): string {
+    $number = (float)$value;
+    if (strtolower(trim((string)$unit)) === 'pcs') {
+        return fmod($number, 1.0) == 0.0
+            ? number_format($number, 0, '.', '')
+            : rtrim(rtrim(number_format($number, 2, '.', ''), '0'), '.');
+    }
+    return number_format($number, 2, '.', '');
+}
+
 function postNumber($key): float {
     return filter_var($_POST[$key] ?? null, FILTER_VALIDATE_FLOAT) !== false
         ? (float)$_POST[$key] : -1;
@@ -178,7 +190,7 @@ unset($_SESSION['error']);
         <nav>
             <a class="<?= $page === 'dashboard' ? 'active' : '' ?>" href="?page=dashboard">⌂ <span>Dashboard</span></a>
             <a class="<?= $page === 'inventory' ? 'active' : '' ?>" href="?page=inventory">▦ <span>Inventory</span></a>
-            <a class="<?= $page === 'menu' ? 'active' : '' ?>" href="?page=menu">☷ <span>Menu Items</span></a>
+            <a class="<?= $page === 'menu' ? 'active' : '' ?>" href="?page=menu">☷ <span>Menu</span></a>
             <a class="<?= $page === 'purchases' ? 'active' : '' ?>" href="?page=purchases">＋ <span>Stock Purchases</span></a>
             <a class="<?= $page === 'sales' ? 'active' : '' ?>" href="?page=sales">₱ <span>Record Sales</span></a>
             <a class="<?= $page === 'expenses' ? 'active' : '' ?>" href="?page=expenses">↗ <span>Expenses</span></a>
@@ -254,7 +266,7 @@ unset($_SESSION['error']);
                                     <?php foreach ($urgentAlerts as $a): ?>
                                         <tr>
                                             <td><b><?= e($a['name']) ?></b></td>
-                                            <td><?= e($a['quantity']) ?> <?= e($a['unit']) ?></td>
+                                            <td><?= e(qty($a['quantity'], $a['unit'])) ?> <?= e($a['unit']) ?></td>
                                             <td><span class="pill warning">Reorder soon</span></td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -320,8 +332,8 @@ unset($_SESSION['error']);
                                 <?php foreach ($ingredients as $i): ?>
                                     <tr>
                                         <td><b><?= e($i['name']) ?></b></td>
-                                        <td><?= e($i['quantity']) ?> <?= e($i['unit']) ?></td>
-                                        <td><?= e($i['reorder_level']) ?></td>
+                                        <td><?= e(qty($i['quantity'], $i['unit'])) ?> <?= e($i['unit']) ?></td>
+                                        <td><?= e(qty($i['reorder_level'], $i['unit'])) ?></td>
                                         <td><?= (float)$i['quantity'] <= (float)$i['reorder_level'] ? '<span class="pill warning">Low stock</span>' : '<span class="pill good">In stock</span>' ?></td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -339,7 +351,7 @@ unset($_SESSION['error']);
                 <section class="panel">
                     <div class="panel-head">
                         <div>
-                            <h3>Add menu item</h3>
+                            <h3>Add product</h3>
                             <p>Connect a product to its ingredient usage</p>
                         </div>
                     </div>
@@ -383,7 +395,7 @@ unset($_SESSION['error']);
                                     <tr>
                                         <td><b><?= e($m['name']) ?></b></td>
                                         <td><?= money($m['price']) ?></td>
-                                        <td><?= e($m['ingredient_qty']) ?> <?= e($m['unit']) ?> <?= e($m['ingredient_name']) ?></td>
+                                        <td><?= e(qty($m['ingredient_qty'], $m['unit'])) ?> <?= e($m['unit']) ?> <?= e($m['ingredient_name']) ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$menuItems): ?>
@@ -411,7 +423,7 @@ unset($_SESSION['error']);
                             <select name="ingredient_id" required>
                                 <option value="">Choose ingredient</option>
                                 <?php foreach ($ingredients as $i): ?>
-                                    <option value="<?= $i['id'] ?>"><?= e($i['name']) ?> (<?= e($i['quantity']) ?> <?= e($i['unit']) ?>)</option>
+                                    <option value="<?= $i['id'] ?>"><?= e($i['name']) ?> (<?= e(qty($i['quantity'], $i['unit'])) ?> <?= e($i['unit']) ?>)</option>
                                 <?php endforeach; ?>
                             </select>
                         </label>
@@ -440,7 +452,7 @@ unset($_SESSION['error']);
                                 <?php foreach ($ingredients as $i): ?>
                                     <tr>
                                         <td><?= e($i['name']) ?></td>
-                                        <td><?= e($i['quantity']) ?> <?= e($i['unit']) ?></td>
+                                        <td><?= e(qty($i['quantity'], $i['unit'])) ?> <?= e($i['unit']) ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -463,9 +475,9 @@ unset($_SESSION['error']);
                         <input type="hidden" name="return_page" value="sales">
                         <label class="wide">Menu item
                             <select name="menu_item_id" required>
-                                <option value="">Choose Items</option>
+                                <option value="">Choose Product</option>
                                 <?php foreach ($menuItems as $m): ?>
-                                    <option value="<?= $m['id'] ?>"><?= e($m['name']) ?> · <?= money($m['price']) ?> · Stock: <?= e($m['stock']) ?> <?= e($m['unit']) ?></option>
+                                    <option value="<?= $m['id'] ?>"><?= e($m['name']) ?> · <?= money($m['price']) ?> · Stock: <?= e(qty($m['stock'], $m['unit'])) ?> <?= e($m['unit']) ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </label>

@@ -2,8 +2,6 @@
 require_once 'auth.php';
 require_once 'algorithms.php';
 
-// Format stock quantities: "pcs" are whole items, so show 100 instead of 100.00.
-// Other units (kg, L, ...) keep 2 decimals.
 function qty($value, $unit = ''): string {
     $number = (float)$value;
     if (strtolower(trim((string)$unit)) === 'pcs') {

@@ -4,18 +4,28 @@ if (!empty($_SESSION['user_id'])) redirect('index.php');
 
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
+    $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
 
-    if (empty($username)) {
-        $error = 'Please enter a username.';
-    } elseif (!preg_match('/^[a-zA-Z\s]+$/', $username)) {
-        // Fail login if username contains any numbers or symbols
-        $error = 'Invalid username or password.';
+    if (empty($email)) {
+        $error = 'Please enter an email address.';
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $error = 'Please enter a valid email address.';
     } else {
-        // Check if user already exists
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE name = ?");
-        $stmt->execute([$username]);
+        // Extract the name part before the '@' symbol
+        $localPart = explode('@', $email)[0];
+        
+        $cleanName = preg_replace('/[0-9]+/', '', $localPart);
+        $cleanName = str_replace(['.', '_', '-'], ' ', $cleanName);
+        $name = ucwords(trim(preg_replace('/\s+/', ' ', $cleanName)));
+        
+        if (empty($name)) {
+            $name = 'Stall Owner';
+        }
+
+        // Check if user already exists by email
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
+        $stmt->execute([$email]);
         $user = $stmt->fetch();
 
         if ($user) {
@@ -25,15 +35,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['name'] = $user['name'];
             redirect();
         } else {
-            // If user doesn't exist, automatically create them on the fly
+            // If user doesn't exist, automatically create them on the fly without registration
             $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
             $insert = $pdo->prepare("INSERT INTO users (name, email, password) VALUES (?, ?, ?)");
             
-            if ($insert->execute([$username, $username . '@local.test', $hashedPassword])) {
+            if ($insert->execute([$name, $email, $hashedPassword])) {
                 $newUserId = $pdo->lastInsertId();
                 session_regenerate_id(true);
                 $_SESSION['user_id'] = $newUserId;
-                $_SESSION['name'] = $username;
+                $_SESSION['name'] = $name;
                 redirect();
             } else {
                 $error = 'Login failed. Please try again.';
@@ -63,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <form method="POST">
         <label>Username</label>
-        <input type="text" name="username" required autocomplete="username">
+        <input type="email" name="email" required autocomplete="email" placeholder="juan.delacruz123@gmail.com">
         
         <label>Password</label>
         <input type="password" name="password" required autocomplete="current-password" placeholder="Enter your password">

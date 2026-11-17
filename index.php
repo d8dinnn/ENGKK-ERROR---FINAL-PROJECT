@@ -301,7 +301,7 @@ unset($_SESSION['error']);
                     <form method="POST" class="form-grid">
                         <input type="hidden" name="action" value="add_ingredient">
                         <input type="hidden" name="return_page" value="inventory">
-                        <label class="wide">Ingredient name<input name="name" required placeholder="e.g. Chicken"></label>
+                        <label class="wide">Ingredient name<input name="name" required placeholder="Chicken"></label>
                         <label>Unit<input name="unit" required value="pcs" placeholder="kg, pcs, packs"></label>
                         <label>Starting quantity<input type="number" name="quantity" min="0" step="0.01" required></label>
                         <label class="wide">Reorder level<input type="number" name="reorder_level" min="0" step="0.01" value="5" required></label>
@@ -366,7 +366,7 @@ unset($_SESSION['error']);
                                 <?php endforeach; ?>
                             </select>
                         </label>
-                        <label class="wide">Ingredient used per item<input type="number" name="ingredient_qty" min="0.01" step="0.01" value="1" required></label>
+                        <label class="wide">Ingredient used<input type="number" name="ingredient_qty" min="0.01" step="0.01" value="1" required></label>
                         <button class="btn primary wide">Save menu item</button>
                     </form>
                     <p class="hint">Simple recipe model: each menu item deducts one linked ingredient. You can extend this to multiple ingredients per recipe later.</p>

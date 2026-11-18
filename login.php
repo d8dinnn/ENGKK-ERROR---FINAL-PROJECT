@@ -12,7 +12,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = 'Please enter a valid email address.';
     } else {
-        // Extract the name part before the '@' symbol
         $localPart = explode('@', $email)[0];
         
         $cleanName = preg_replace('/[0-9]+/', '', $localPart);
@@ -23,7 +22,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $name = 'Stall Owner';
         }
 
-        // Check if user already exists by email
         $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
         $stmt->execute([$email]);
         $user = $stmt->fetch();
@@ -35,7 +33,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['name'] = $user['name'];
             redirect();
         } else {
-            // If user doesn't exist, automatically create them on the fly without registration
             $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
             $insert = $pdo->prepare("INSERT INTO users (name, email, password) VALUES (?, ?, ?)");
             

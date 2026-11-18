@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS purchases (
 CREATE TABLE IF NOT EXISTS sales (
     id INT AUTO_INCREMENT PRIMARY KEY,
     menu_item_id INT NOT NULL,
-    quantity INT NOT NULL,
+    quantity DECIMAL(10,2) NOT NULL,
     total DECIMAL(10,2) NOT NULL,
     sold_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (menu_item_id) REFERENCES menu_items(id)

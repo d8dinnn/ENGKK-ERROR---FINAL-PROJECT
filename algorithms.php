@@ -81,5 +81,3 @@ function linearReorderSearch(array $ingredients): array {
     }
     return $result;
 }
-
-//PHP indexed arrays hold the retrieved transaction records, it called Dynamic Array

@@ -5,7 +5,7 @@ require_once 'algorithms.php';
 function qty($value, $unit = ''): string {
     $number = (float)$value;
     $u = strtolower(trim((string)$unit));
-    
+
     if (in_array($u, ['pcs', 'kg', 'packs'], true)) {
         return fmod($number, 1.0) == 0.0
             ? number_format($number, 0, '.', '')
@@ -60,10 +60,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ->execute([$qty, $ingredientId]);
             $pdo->commit();
             $_SESSION['flash'] = 'Purchase recorded and stock updated.';
-        } elseif ($action === 'sale') {
+       } elseif ($action === 'sale') {
             $menuId = (int)($_POST['menu_item_id'] ?? 0);
-            $qty = filter_var($_POST['quantity'] ?? null, FILTER_VALIDATE_INT);
-            if ($menuId <= 0 || $qty === false || $qty <= 0) {
+            $qty = postNumber('quantity');
+            if ($menuId <= 0 || $qty <= 0) {
                 throw new Exception('Choose a menu item and enter a quantity greater than zero.');
             }
 
@@ -75,7 +75,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Menu item not found.');
             }
 
-            // Hash-table lookup is used here to retrieve the ingredient needed for this sale.
             $lockedIngredients = $pdo->query("SELECT * FROM ingredients FOR UPDATE")->fetchAll();
             $saleStockTable = new IngredientHashTable();
             foreach ($lockedIngredients as $ingredientRow) {
@@ -482,7 +481,7 @@ unset($_SESSION['error']);
                                 <?php endforeach; ?>
                             </select>
                         </label>
-                        <label class="wide">Quantity sold<input type="number" name="quantity" min="1" step="1" required></label>
+                       <label class="wide">Quantity sold<input type="number" name="quantity" min="0.01" step="0.01" required></label>
                         <button class="btn primary wide">Complete sale</button>
                     </form>
                 </section>

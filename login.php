@@ -72,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php endif; ?>
 
     <form method="POST">
-        <label>Username</label>
+        <label>Email Address</label>
         <input type="email" name="email" required autocomplete="email" placeholder="juan.delacruz123@gmail.com">
         
         <label>Password</label>

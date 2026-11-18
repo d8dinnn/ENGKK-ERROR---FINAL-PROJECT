@@ -4,11 +4,14 @@ require_once 'algorithms.php';
 
 function qty($value, $unit = ''): string {
     $number = (float)$value;
-    if (strtolower(trim((string)$unit)) === 'pcs') {
+    $u = strtolower(trim((string)$unit));
+    
+    if (in_array($u, ['pcs', 'kg', 'packs'], true)) {
         return fmod($number, 1.0) == 0.0
             ? number_format($number, 0, '.', '')
             : rtrim(rtrim(number_format($number, 2, '.', ''), '0'), '.');
     }
+    
     return number_format($number, 2, '.', '');
 }
 

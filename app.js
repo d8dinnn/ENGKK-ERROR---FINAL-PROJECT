@@ -34,6 +34,9 @@ function mergeSortProducts(items) {
 function peso(value) {
     return '₱' + Number(value).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2});
 }
+function roundUnits(value) {
+    return Math.round(value * 100) / 100;
+}
 function buildReport() {
     const data = window.salesData || [];
     const from = document.getElementById('dateFrom').value;
@@ -58,18 +61,29 @@ function buildReport() {
     });
     const ranked = mergeSortProducts(Object.values(grouped));
     document.getElementById('reportSales').textContent = peso(total);
-    document.getElementById('reportUnits').textContent = units;
+    document.getElementById('reportUnits').textContent = roundUnits(units);
     if (!ranked.length) {
         rows.innerHTML = '<tr><td colspan="3" class="empty">No sales found for this period.</td></tr>';
         return;
     }
     rows.innerHTML = ranked.map(item =>
-        `<tr><td><b>${escapeHtml(item.name)}</b></td><td>${item.units}</td><td>${peso(item.revenue)}</td></tr>`
+        `<tr><td><b>${escapeHtml(item.name)}</b></td><td>${roundUnits(item.units)}</td><td>${peso(item.revenue)}</td></tr>`
     ).join('');
 }
 function escapeHtml(value) {
     return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
 }
+
+// Menu page: add another ingredient row to the recipe form
+function addRecipeRow() {
+    const container = document.getElementById('recipeRows');
+    const first = container.querySelector('.recipe-row');
+    const copy = first.cloneNode(true);
+    copy.querySelectorAll('input').forEach(i => i.value = '');
+    copy.querySelectorAll('select').forEach(s => s.selectedIndex = 0);
+    container.appendChild(copy);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     if (document.getElementById('reportRows')) buildReport();
 });

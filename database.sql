@@ -20,9 +20,16 @@ CREATE TABLE IF NOT EXISTS ingredients (
 CREATE TABLE IF NOT EXISTS menu_items (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(120) NOT NULL,
-    price DECIMAL(10,2) NOT NULL,
+    price DECIMAL(10,2) NOT NULL
+);
+
+-- One row per ingredient used by one serving of a menu item
+CREATE TABLE IF NOT EXISTS menu_item_ingredients (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    menu_item_id INT NOT NULL,
     ingredient_id INT NOT NULL,
-    ingredient_qty DECIMAL(10,2) NOT NULL DEFAULT 1,
+    quantity DECIMAL(10,2) NOT NULL,
+    FOREIGN KEY (menu_item_id) REFERENCES menu_items(id) ON DELETE CASCADE,
     FOREIGN KEY (ingredient_id) REFERENCES ingredients(id)
 );
 

@@ -305,7 +305,7 @@ unset($_SESSION['error']);
                 <p class="eyebrow">4M’S EXPRESS</p>
                 <h1><?= e(ucfirst($page === 'reports' ? 'Analytics & Reports' : $page)) ?></h1>
             </div>
-            <div class="top-date"><?= date('D, M j , Y') ?></div>
+            <div class="top-date"><?= date('D, M j, Y') ?></div>
         </header>
 
         <?php if ($flash): ?>
@@ -460,7 +460,7 @@ unset($_SESSION['error']);
                     <form method="POST" class="form-grid">
                         <input type="hidden" name="action" value="add_menu">
                         <input type="hidden" name="return_page" value="menu">
-                        <label class="wide">Menu item name<input name="name" required placeholder="e.g. Sisig with Java Rice"></label>
+                        <label class="wide">Menu item name<input name="name" required placeholder="e.g. Pork chop w/ Java Rice"></label>
                         <label class="wide">Selling price per serving (₱)<input type="number" name="price" min="0.01" step="0.01" required></label>
 
                         <div class="wide" id="recipeRows">
@@ -481,7 +481,6 @@ unset($_SESSION['error']);
                         <button type="button" class="btn wide" onclick="addRecipeRow()">+ Add another ingredient</button>
                         <button class="btn primary wide">Save menu item</button>
                     </form>
-                    <p class="hint">List every ingredient one serving uses, e.g. Pork chop 0.25 kg, Onion 0.05 kg, Chili 3 pcs. Each sale deducts all of them.</p>
                     <?php endif; ?>
                 </section>
 

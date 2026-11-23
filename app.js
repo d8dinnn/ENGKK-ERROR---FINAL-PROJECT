@@ -1,4 +1,4 @@
-// Binary search and merge sort are used by the sales report
+// binary search and merge sort are used by the sales report
 function lowerBoundByDate(records, target) {
     let low = 0, high = records.length;
     while (low < high) {
@@ -17,7 +17,7 @@ function upperBoundByDate(records, target) {
     }
     return low;
 }
-// Merge sort descending by units sold
+// merge sort descending by units sold
 function mergeSortProducts(items) {
     if (items.length <= 1) return items;
     const mid = Math.floor(items.length / 2);
@@ -43,13 +43,13 @@ function buildReport() {
     const to = document.getElementById('dateTo').value;
     const rows = document.getElementById('reportRows');
     if (!from || !to || from > to) {
-        rows.innerHTML = '<tr><td colspan="3" class="empty">Please select a valid date range.</td></tr>';
+        rows.innerHTML = '<tr><td colspan="3" class="empty">Please choose a start date that comes before the end date.</td></tr>';
         return;
     }
-    // The PHP page supplies records ordered by date. Binary search finds the date-range boundaries
+
     const start = lowerBoundByDate(data, from);
     const end = upperBoundByDate(data, to);
-    const selected = data.slice(start, end); // Dynamic array/list of filtered sales.
+    const selected = data.slice(start, end);
     let total = 0, units = 0;
     const grouped = {};
     selected.forEach(sale => {
@@ -63,7 +63,7 @@ function buildReport() {
     document.getElementById('reportSales').textContent = peso(total);
     document.getElementById('reportUnits').textContent = roundUnits(units);
     if (!ranked.length) {
-        rows.innerHTML = '<tr><td colspan="3" class="empty">No sales found for this period.</td></tr>';
+        rows.innerHTML = '<tr><td colspan="3" class="empty">No sales in this period. Try a wider date range.</td></tr>';
         return;
     }
     rows.innerHTML = ranked.map(item =>
@@ -74,7 +74,6 @@ function escapeHtml(value) {
     return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
 }
 
-// Menu page: add another ingredient row to the recipe form
 function addRecipeRow() {
     const container = document.getElementById('recipeRows');
     const first = container.querySelector('.recipe-row');
@@ -84,6 +83,75 @@ function addRecipeRow() {
     container.appendChild(copy);
 }
 
+function removeRecipeRow(btn) {
+    const container = document.getElementById('recipeRows');
+    if (container.querySelectorAll('.recipe-row').length > 1) {
+        btn.closest('.recipe-row').remove();
+    }
+}
+
+function ymd(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function setRange(kind) {
+    const now = new Date();
+    let from = new Date(now);
+    if (kind === 'week') from.setDate(now.getDate() - 6);
+    else if (kind === 'month') from = new Date(now.getFullYear(), now.getMonth(), 1);
+    else if (kind === 'all') {
+        const data = window.salesData || [];
+        from = data.length ? new Date(data[0].date + 'T00:00:00') : now;
+    }
+    document.getElementById('dateFrom').value = ymd(from);
+    document.getElementById('dateTo').value = ymd(now);
+    buildReport();
+}
+
+function updateSaleTotal() {
+    const sel = document.getElementById('saleItem');
+    if (!sel) return;
+    const opt = sel.options[sel.selectedIndex];
+    const qty = parseFloat(document.getElementById('saleQty').value) || 0;
+    const price = parseFloat(opt.dataset.price || 0);
+    const max = parseFloat(opt.dataset.max || 0);
+    document.getElementById('saleTotal').textContent = peso(price * qty);
+    const warn = document.getElementById('saleWarn');
+    if (sel.value && qty > max) {
+        warn.textContent = 'You only have enough ingredients for ' + max + ' serving(s). Restock first or lower the quantity.';
+        warn.hidden = false;
+    } else {
+        warn.hidden = true;
+    }
+}
+
+function updatePurchaseTotal() {
+    const q = parseFloat(document.getElementById('purchQty').value) || 0;
+    const c = parseFloat(document.getElementById('purchCost').value) || 0;
+    document.getElementById('purchTotal').textContent = peso(q * c);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     if (document.getElementById('reportRows')) buildReport();
+
+    if (document.getElementById('saleItem')) {
+        ['saleItem', 'saleQty'].forEach(id => {
+            document.getElementById(id).addEventListener('input', updateSaleTotal);
+            document.getElementById(id).addEventListener('change', updateSaleTotal);
+        });
+        updateSaleTotal();
+    }
+    if (document.getElementById('purchQty')) {
+        ['purchQty', 'purchCost'].forEach(id => document.getElementById(id).addEventListener('input', updatePurchaseTotal));
+        updatePurchaseTotal();
+    }
+
+    document.querySelectorAll('form[method="POST"]').forEach(form => {
+        form.addEventListener('submit', e => {
+            if (e.defaultPrevented) return;
+            const btn = form.querySelector('button:not([type="button"])');
+            if (btn) setTimeout(() => { btn.disabled = true; btn.textContent = 'Saving…'; }, 0);
+        });
+    });
+
+    document.querySelectorAll('.alert.success').forEach(a => setTimeout(() => a.classList.add('fade'), 6000));
 });

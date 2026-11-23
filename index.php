@@ -3,7 +3,7 @@ require_once 'auth.php';
 require_once 'algorithms.php';
 
 function qty($value, $unit = ''): string {
-    $number = (float)$value;
+    $number = (int)$value;
     $u = strtolower(trim((string)$unit));
 
     if (in_array($u, ['pcs', 'kg', 'packs'], true)) {
@@ -15,22 +15,27 @@ function qty($value, $unit = ''): string {
     return number_format($number, 2, '.', '');
 }
 
-function postNumber($key): float {
-    return filter_var($_POST[$key] ?? null, FILTER_VALIDATE_FLOAT) !== false
-        ? (float)$_POST[$key] : -1;
+function postNumber($key): int {
+    return filter_var($_POST[$key] ?? null, FILTER_VALIDATE_INT) !== false
+        ? (int)$_POST[$key] : -1;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     try {
-        if ($action === 'add_ingredient') {
+       if ($action === 'add_ingredient') {
             $name = trim($_POST['name'] ?? '');
-            $unit = trim($_POST['unit'] ?? 'pcs');
+            $unit = strtolower(trim($_POST['unit'] ?? ''));
             $qty = postNumber('quantity');
             $reorder = postNumber('reorder_level');
+            $allowedUnits = ['pcs', 'kg', 'packs'];
+
             if ($name === '' || $qty < 0 || $reorder < 0) {
                 throw new Exception('Enter a name and valid non-negative quantities.');
+            }
+            if (!in_array($unit, $allowedUnits, true)) {
+                throw new Exception('Invalid unit. Only "pcs", "kg", and "packs" are allowed.');
             }
             $stmt = $pdo->prepare("INSERT INTO ingredients(name, unit, quantity, reorder_level) VALUES(?,?,?,?)");
             $stmt->execute([$name, $unit, $qty, $reorder]);
@@ -42,11 +47,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ids   = $_POST['ingredient_id'] ?? [];
             $qtys  = $_POST['ingredient_qty'] ?? [];
 
-            // Build the recipe: ingredient_id => amount per serving (duplicates are merged)
+            // build the recipe: ingredient_id => amount per serving (duplicates are merged)
             $recipe = [];
             foreach ($ids as $k => $id) {
                 $id = (int)$id;
-                $q  = filter_var($qtys[$k] ?? null, FILTER_VALIDATE_FLOAT);
+                $q  = filter_var($qtys[$k] ?? null, FILTER_VALIDATE_INT);
                 if ($id > 0 && $q !== false && $q > 0) {
                     $recipe[$id] = ($recipe[$id] ?? 0) + $q;
                 }
@@ -115,7 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Menu item not found.');
             }
 
-            // Lock only the ingredients used by this recipe
+            // lock only the ingredients used by this recipe
             $stmt = $pdo->prepare("
                 SELECT r.ingredient_id, r.quantity AS per_serving, i.name, i.unit, i.quantity AS stock
                 FROM menu_item_ingredients r
@@ -129,18 +134,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('This menu item has no ingredients set.');
             }
 
-            // Hash table lookup of the recipe's ingredient rows
+            // hash table lookup of the recipe's ingredient rows
             $saleStockTable = new IngredientHashTable();
             foreach ($recipe as $r) {
                 $saleStockTable->insert($r['ingredient_id'], $r);
             }
 
-            // Check every ingredient before deducting anything
+            // check every ingredient before deducting anything
             $short = [];
             foreach ($recipe as $r) {
                 $row = $saleStockTable->get($r['ingredient_id']);
-                $needed = (float)$row['per_serving'] * $qty;
-                if ((float)$row['stock'] < $needed) {
+                $needed = (int)$row['per_serving'] * $qty;
+                if ((int)$row['stock'] < $needed) {
                     $short[] = $row['name'] . ' (need ' . qty($needed, $row['unit']) . ' ' . $row['unit']
                              . ', have ' . qty($row['stock'], $row['unit']) . ' ' . $row['unit'] . ')';
                 }
@@ -149,14 +154,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Not enough stock: ' . implode(', ', $short));
             }
 
-            $total = (float)$item['price'] * $qty;
+            $total = (int)$item['price'] * $qty;
             $pdo->prepare("INSERT INTO sales(menu_item_id, quantity, total) VALUES(?,?,?)")
                 ->execute([$menuId, $qty, $total]);
 
-            // Deduct every ingredient in the recipe
+            // deduct every ingredient in the recipe
             $upd = $pdo->prepare("UPDATE ingredients SET quantity = quantity - ? WHERE id = ?");
             foreach ($recipe as $r) {
-                $upd->execute([(float)$r['per_serving'] * $qty, $r['ingredient_id']]);
+                $upd->execute([(int)$r['per_serving'] * $qty, $r['ingredient_id']]);
             }
             $pdo->commit();
             $_SESSION['flash'] = 'Sale recorded. All recipe ingredients were deducted from stock.';
@@ -200,7 +205,7 @@ if (!in_array($page, $allowed, true)) {
 
 $ingredients = $pdo->query("SELECT * FROM ingredients ORDER BY name")->fetchAll();
 
-// Menu items with their full recipes
+// menu items with their full recipes
 $menuItems = $pdo->query("SELECT * FROM menu_items ORDER BY name")->fetchAll();
 $recipeRows = $pdo->query("
     SELECT r.menu_item_id, r.ingredient_id, r.quantity, i.name, i.unit, i.quantity AS stock
@@ -214,10 +219,9 @@ foreach ($recipeRows as $r) {
 }
 foreach ($menuItems as &$m) {
     $m['recipe'] = $recipes[$m['id']] ?? [];
-    // Servings left = limited by the scarcest ingredient
     $servings = null;
     foreach ($m['recipe'] as $r) {
-        $can = (float)$r['quantity'] > 0 ? floor((float)$r['stock'] / (float)$r['quantity']) : 0;
+        $can = (int)$r['quantity'] > 0 ? floor((int)$r['stock'] / (int)$r['quantity']) : 0;
         $servings = $servings === null ? $can : min($servings, $can);
     }
     $m['servings_left'] = (int)($servings ?? 0);
@@ -227,8 +231,8 @@ unset($m);
 $sales = $pdo->query("SELECT s.*, m.name AS item_name FROM sales s JOIN menu_items m ON m.id = s.menu_item_id ORDER BY s.sold_at")->fetchAll();
 $expenses = $pdo->query("SELECT * FROM expenses ORDER BY expense_date DESC, id DESC")->fetchAll();
 
-$todaySales = (float)$pdo->query("SELECT COALESCE(SUM(total), 0) FROM sales WHERE DATE(sold_at) = CURDATE()")->fetchColumn();
-$todayExpenses = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date = CURDATE()")->fetchColumn();
+$todaySales = (int)$pdo->query("SELECT COALESCE(SUM(total), 0) FROM sales WHERE DATE(sold_at) = CURDATE()")->fetchColumn();
+$todayExpenses = (int)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date = CURDATE()")->fetchColumn();
 $ingredientCount = count($ingredients);
 $lowStock = linearReorderSearch($ingredients);
 
@@ -240,7 +244,7 @@ foreach ($ingredients as $ingredient) {
 $heap = new MinHeap();
 foreach ($lowStock as $ingredient) {
     $heap->insert([
-        'priority' => (float)$ingredient['quantity'],
+        'priority' => (int)$ingredient['quantity'],
         'name' => $ingredient['name'],
         'quantity' => $ingredient['quantity'],
         'unit' => $ingredient['unit']
@@ -251,8 +255,8 @@ while (!$heap->isEmpty()) {
     $urgentAlerts[] = $heap->removeMin();
 }
 
-$allTimeSales = (float)$pdo->query("SELECT COALESCE(SUM(total), 0) FROM sales")->fetchColumn();
-$allTimeExpenses = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses")->fetchColumn();
+$allTimeSales = (int)$pdo->query("SELECT COALESCE(SUM(total), 0) FROM sales")->fetchColumn();
+$allTimeExpenses = (int)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses")->fetchColumn();
 $topProducts = $pdo->query("SELECT m.name, SUM(s.quantity) AS units, SUM(s.total) AS revenue FROM sales s JOIN menu_items m ON m.id = s.menu_item_id GROUP BY m.id ORDER BY units DESC LIMIT 10")->fetchAll();
 
 $flash = $_SESSION['flash'] ?? '';
@@ -315,12 +319,21 @@ unset($_SESSION['error']);
             <div class="alert danger"><?= e($error) ?></div>
         <?php endif; ?>
 
-        <?php if ($page === 'dashboard'): ?>
+      <?php if ($page === 'dashboard'): ?>
+            <?php
+                $hour = (int)date('G');
+                $greeting = $hour < 12 ? 'Good morning' : ($hour < 18 ? 'Good afternoon' : 'Good evening');
+                $firstName = explode(' ', trim($_SESSION['name'] ?? ''))[0] ?: 'there';
+                $hasIngredients = $ingredientCount > 0;
+                $hasMenu = count($menuItems) > 0;
+                $hasSales = count($sales) > 0;
+                $todayProfit = $todaySales - $todayExpenses;
+            ?>
             <section class="welcome">
                 <div>
-                    <p class="eyebrow">YOUR BUSINESS AT A GLANCE</p>
-                    <h2>Good day! Ready for business?</h2>
-                    <p>Keep tracking to keep growing.</p>
+                    <p class="eyebrow">TODAY AT YOUR STALL</p>
+                    <h2><?= e($greeting) ?>, <?= e($firstName) ?>!</h2>
+                    <p>Keep Handling to Keep growing.</p>
                 </div>
             </section>
 
@@ -394,7 +407,13 @@ unset($_SESSION['error']);
                         <input type="hidden" name="action" value="add_ingredient">
                         <input type="hidden" name="return_page" value="inventory">
                         <label class="wide">Ingredient name<input name="name" required placeholder="Chicken"></label>
-                        <label>Unit<input name="unit" required value="pcs" placeholder="kg, pcs, packs"></label>
+                        <label>Unit
+                            <select name="unit" required>
+                                <option value="pcs" selected>pcs</option>
+                                <option value="kg">kg</option>
+                                <option value="packs">packs</option>
+                            </select>
+                        </label>
                         <label>Starting quantity<input type="number" name="quantity" min="0" step="0.01" required></label>
                         <label class="wide">Reorder level<input type="number" name="reorder_level" min="0" step="0.01" value="5" required></label>
                         <button class="btn primary wide">Save ingredient</button>
@@ -425,7 +444,7 @@ unset($_SESSION['error']);
                                         <td><b><?= e($i['name']) ?></b></td>
                                         <td><?= e(qty($i['quantity'], $i['unit'])) ?> <?= e($i['unit']) ?></td>
                                         <td><?= e(qty($i['reorder_level'], $i['unit'])) ?></td>
-                                        <td><?= (float)$i['quantity'] <= (float)$i['reorder_level'] ? '<span class="pill warning">Low stock</span>' : '<span class="pill good">In stock</span>' ?></td>
+                                        <td><?= (int)$i['quantity'] <= (int)$i['reorder_level'] ? '<span class="pill warning">Low stock</span>' : '<span class="pill good">In stock</span>' ?></td>
                                         <td>
                                             <form method="POST" onsubmit="return confirm('Delete this ingredient?')">
                                                 <input type="hidden" name="action" value="delete_ingredient">
@@ -740,8 +759,8 @@ unset($_SESSION['error']);
                 return [
                     'date' => date('Y-m-d', strtotime($s['sold_at'])),
                     'name' => $s['item_name'],
-                    'quantity' => (float)$s['quantity'],
-                    'total' => (float)$s['total']
+                    'quantity' => (int)$s['quantity'],
+                    'total' => (int)$s['total']
                 ];
             }, $sales), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
             </script>

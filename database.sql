@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS menu_items (
     price DECIMAL(10,2) NOT NULL
 );
 
--- One row per ingredient used by one serving of a menu item
 CREATE TABLE IF NOT EXISTS menu_item_ingredients (
     id INT AUTO_INCREMENT PRIMARY KEY,
     menu_item_id INT NOT NULL,

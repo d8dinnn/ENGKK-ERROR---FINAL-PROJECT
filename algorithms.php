@@ -1,5 +1,5 @@
 <?php
-//HashTable and Min-Heap are implemented here
+//hashTable and Min-Heap are implemented here
 class IngredientHashTable {
     private array $buckets = [];
     private int $size = 31;
@@ -36,7 +36,7 @@ class MinHeap {
     private array $heap = [];
 
     public function insert(array $item): void {
-        $this->heap[] = $item; // item: ['priority'=>number, 'name'=>string]
+        $this->heap[] = $item;
         $i = count($this->heap) - 1;
         while ($i > 0) {
             $parent = intdiv($i - 1, 2);
@@ -71,7 +71,7 @@ class MinHeap {
     public function isEmpty(): bool { return count($this->heap) === 0; }
 }
 
-// Linear search it returns every ingredient at or below its reorder level.
+// linear search it returns every ingredient at or below its reorder level.
 function linearReorderSearch(array $ingredients): array {
     $result = [];
     foreach ($ingredients as $item) {

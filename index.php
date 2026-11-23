@@ -47,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ids   = $_POST['ingredient_id'] ?? [];
             $qtys  = $_POST['ingredient_qty'] ?? [];
 
-            // build the recipe: ingredient_id => amount per serving (duplicates are merged)
+            // build the recipe: ingredient_id amount per serving (duplicates are merged)
             $recipe = [];
             foreach ($ids as $k => $id) {
                 $id = (int)$id;
@@ -622,7 +622,7 @@ unset($_SESSION['error']);
                                 <?php endforeach; ?>
                             </select>
                         </label>
-                        <label class="wide">Quantity sold (servings)<input type="number" name="quantity" min="0.01" step="0.01" required></label>
+                        <label class="wide">Quantity<input type="number" name="quantity" min="0.01" step="0.01" required></label>
                         <button class="btn primary wide">Complete sale</button>
                     </form>
                 </section>
@@ -726,7 +726,7 @@ unset($_SESSION['error']);
                 <div class="panel-head">
                     <div>
                         <h3>Sales report by period</h3>
-                        <p>Binary search filters sorted sale dates; merge sort ranks products by units sold.</p>
+                        <p>Here where you can find the best-selling product and your sales record.</p>
                     </div>
                 </div>
                 <div class="filter-row">

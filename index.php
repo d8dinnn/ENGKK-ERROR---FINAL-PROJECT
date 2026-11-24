@@ -1,44 +1,84 @@
 <?php
 require_once 'auth.php';
+
+$currentUserId = !empty($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
 require_once 'algorithms.php';
 
 function qty($value, $unit = ''): string {
-    $number = (int)$value;
-    $u = strtolower(trim((string)$unit));
-
-    if (in_array($u, ['pcs', 'kg', 'packs'], true)) {
-        return fmod($number, 1.0) == 0.0
-            ? number_format($number, 0, '.', '')
-            : rtrim(rtrim(number_format($number, 2, '.', ''), '0'), '.');
-    }
-
-    return number_format($number, 2, '.', '');
+    $number = (float)$value;
+    $text = rtrim(rtrim(number_format($number, 4, '.', ''), '0'), '.');
+    return $text === '' || $text === '-0' ? '0' : $text;
 }
 
-function postNumber($key): int {
-    return filter_var($_POST[$key] ?? null, FILTER_VALIDATE_INT) !== false
-        ? (int)$_POST[$key] : -1;
+function unitKey($u): string {
+    $u = strtolower(trim((string)$u));
+    if (in_array($u, ['g', 'gm', 'gram', 'grams'], true)) return 'g';
+    if (in_array($u, ['kg', 'kilo', 'kilos', 'kilogram', 'kilograms'], true)) return 'kg';
+    return 'other';
+}
+
+function toStockUnit(float $amount, string $entered, string $stockUnit, ?float $gpp): ?float {
+    $s = unitKey($stockUnit);
+    $gpp = ($gpp !== null && $gpp > 0) ? $gpp : null;
+
+    if ($s === 'other') {                       
+        if ($entered === 'pcs') return $amount;
+        if ($gpp === null) return null;
+        $grams = $entered === 'kg' ? $amount * 1000 : $amount;
+        return $grams / $gpp;
+    }
+
+    if ($entered === 'g')        $grams = $amount;      
+    elseif ($entered === 'kg')   $grams = $amount * 1000;
+    elseif ($entered === 'pcs')  { if ($gpp === null) return null; $grams = $amount * $gpp; }
+    else return null;
+    return $s === 'g' ? $grams : $grams / 1000;
+}
+
+function recipeAmount($value, $unit, $gpp = null): string {
+    $n = (float)$value;
+    $s = unitKey($unit);
+    $gpp = ($gpp !== null && (float)$gpp > 0) ? (float)$gpp : null;
+
+    if ($s === 'other') {
+        $isPiece = in_array(strtolower(trim((string)$unit)), ['pc', 'pcs', 'piece', 'pieces'], true);
+        if ($isPiece || $gpp === null) {
+            return qty($n) . ' ' . $unit . ($gpp !== null ? ' (≈ ' . qty($n * $gpp) . ' g)' : '');
+        }
+        $grams = $n * $gpp;                               
+        return ($grams >= 1000 ? qty($grams / 1000) . ' kg' : qty($grams) . ' g');
+    }
+
+    $grams = $s === 'kg' ? $n * 1000 : $n;
+    $text  = $grams >= 1000 ? qty($grams / 1000) . ' kg' : qty($grams) . ' g';
+    if ($gpp !== null) $text .= ' (≈ ' . qty($grams / $gpp) . ' pcs)';
+    return $text;
+}
+
+function postNumber($key): float {
+    return filter_var($_POST[$key] ?? null, FILTER_VALIDATE_FLOAT) !== false
+        ? (float)$_POST[$key] : -1;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     try {
-       if ($action === 'add_ingredient') {
+        if ($action === 'add_ingredient') {
             $name = trim($_POST['name'] ?? '');
-            $unit = strtolower(trim($_POST['unit'] ?? ''));
+            $unit = trim($_POST['unit'] ?? 'pcs');
+            if (!in_array($unit, ['kg', 'g', 'pcs', 'packs'], true)) {
+                throw new Exception('Choose a unit from the list.');
+            }
             $qty = postNumber('quantity');
             $reorder = postNumber('reorder_level');
-            $allowedUnits = ['pcs', 'kg', 'packs'];
-
             if ($name === '' || $qty < 0 || $reorder < 0) {
                 throw new Exception('Enter a name and valid non-negative quantities.');
             }
-            if (!in_array($unit, $allowedUnits, true)) {
-                throw new Exception('Invalid unit. Only "pcs", "kg", and "packs" are allowed.');
-            }
-            $stmt = $pdo->prepare("INSERT INTO ingredients(name, unit, quantity, reorder_level) VALUES(?,?,?,?)");
-            $stmt->execute([$name, $unit, $qty, $reorder]);
+            $gpp = postNumber('grams_per_piece');
+            $gpp = $gpp > 0 ? $gpp : null;   
+            $stmt = $pdo->prepare("INSERT INTO ingredients(name, unit, quantity, reorder_level, grams_per_piece) VALUES(?,?,?,?,?)");
+            $stmt->execute([$name, $unit, $qty, $reorder, $gpp]);
             $_SESSION['flash'] = 'Ingredient added.';
 
         } elseif ($action === 'add_menu') {
@@ -47,13 +87,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ids   = $_POST['ingredient_id'] ?? [];
             $qtys  = $_POST['ingredient_qty'] ?? [];
 
-            // build the recipe: ingredient_id amount per serving (duplicates are merged)
+            $units = $_POST['ingredient_unit'] ?? [];
+            $stockInfo = [];
+            foreach ($pdo->query("SELECT id, unit, grams_per_piece FROM ingredients") as $row) {
+                $stockInfo[(int)$row['id']] = $row;
+            }
+
             $recipe = [];
             foreach ($ids as $k => $id) {
                 $id = (int)$id;
-                $q  = filter_var($qtys[$k] ?? null, FILTER_VALIDATE_INT);
-                if ($id > 0 && $q !== false && $q > 0) {
-                    $recipe[$id] = ($recipe[$id] ?? 0) + $q;
+                $q  = filter_var($qtys[$k] ?? null, FILTER_VALIDATE_FLOAT);
+                if ($id > 0 && $q !== false && $q > 0 && isset($stockInfo[$id])) {
+                    $info = $stockInfo[$id];
+                    $converted = toStockUnit((float)$q, (string)($units[$k] ?? ''), $info['unit'],
+                        $info['grams_per_piece'] !== null ? (float)$info['grams_per_piece'] : null);
+                    if ($converted === null) {
+                        throw new Exception('Cannot convert to ' . $info['unit'] . ' for this ingredient. Set its grams per piece in Inventory, or use ' . (unitKey($info['unit']) === 'other' ? 'pcs' : 'g or kg') . '.');
+                    }
+                    $recipe[$id] = ($recipe[$id] ?? 0) + $converted;
                 }
             }
             if ($name === '' || $price <= 0 || !$recipe) {
@@ -78,32 +129,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Enter a valid ingredient, quantity, and cost.');
             }
             $pdo->beginTransaction();
-            $stmt = $pdo->prepare("SELECT name, unit FROM ingredients WHERE id = ? FOR UPDATE");
-            $stmt->execute([$ingredientId]);
-            $ing = $stmt->fetch();
-            if (!$ing) {
-                throw new Exception('Ingredient not found.');
-            }
-            $purchaseTable = new IngredientHashTable();
-            $purchaseTable->insert($ingredientId, $ing);
-            $ingInfo = $purchaseTable->get($ingredientId);
-
-            $pdo->prepare("INSERT INTO purchases(ingredient_id, quantity, unit_cost) VALUES(?,?,?)")
-                ->execute([$ingredientId, $qty, $cost]);
+            $pdo->prepare("INSERT INTO purchases(ingredient_id, quantity, unit_cost, user_id) VALUES(?,?,?,?)")
+                ->execute([$ingredientId, $qty, $cost, $currentUserId]);
+            $purchaseId = (int)$pdo->lastInsertId();
             $pdo->prepare("UPDATE ingredients SET quantity = quantity + ? WHERE id = ?")
                 ->execute([$qty, $ingredientId]);
 
-            $expenseAmount = round($cost, 2);
-            if ($expenseAmount > 0) {
-                $desc = 'Stock purchase: ' . $ingInfo['name']
-                    . ' (' . qty($qty, $ingInfo['unit']) . ' ' . $ingInfo['unit']. ')';
-                $pdo->prepare("INSERT INTO expenses(description, amount, expense_date) VALUES(?,?,?)")
-                    ->execute([$desc, $expenseAmount, date('Y-m-d')]);
+            $restockCost = round($qty * $cost, 2);
+            if ($restockCost > 0) {
+                $nameStmt = $pdo->prepare("SELECT name FROM ingredients WHERE id = ?");
+                $nameStmt->execute([$ingredientId]);
+                $pdo->prepare("INSERT INTO expenses(description, amount, expense_date, user_id, purchase_id) VALUES(?,?,?,?,?)")
+                    ->execute(['Restock: ' . $nameStmt->fetchColumn(), $restockCost, date('Y-m-d'), $currentUserId, $purchaseId]);
             }
             $pdo->commit();
-            $_SESSION['flash'] = $expenseAmount > 0
-                ? 'Purchase recorded, stock updated, and expense logged.'
-                : 'Purchase recorded and stock updated.';
+            $_SESSION['flash'] = 'Purchase recorded, stock updated, and the cost added to expenses.';
 
         } elseif ($action === 'sale') {
             $menuId = (int)($_POST['menu_item_id'] ?? 0);
@@ -120,7 +160,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Menu item not found.');
             }
 
-            // lock only the ingredients used by this recipe
             $stmt = $pdo->prepare("
                 SELECT r.ingredient_id, r.quantity AS per_serving, i.name, i.unit, i.quantity AS stock
                 FROM menu_item_ingredients r
@@ -134,18 +173,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('This menu item has no ingredients set.');
             }
 
-            // hash table lookup of the recipe's ingredient rows
             $saleStockTable = new IngredientHashTable();
             foreach ($recipe as $r) {
                 $saleStockTable->insert($r['ingredient_id'], $r);
             }
 
-            // check every ingredient before deducting anything
             $short = [];
             foreach ($recipe as $r) {
                 $row = $saleStockTable->get($r['ingredient_id']);
-                $needed = (int)$row['per_serving'] * $qty;
-                if ((int)$row['stock'] < $needed) {
+                $needed = (float)$row['per_serving'] * $qty;
+                if ((float)$row['stock'] < $needed) {
                     $short[] = $row['name'] . ' (need ' . qty($needed, $row['unit']) . ' ' . $row['unit']
                              . ', have ' . qty($row['stock'], $row['unit']) . ' ' . $row['unit'] . ')';
                 }
@@ -154,14 +191,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('Not enough stock: ' . implode(', ', $short));
             }
 
-            $total = (int)$item['price'] * $qty;
-            $pdo->prepare("INSERT INTO sales(menu_item_id, quantity, total) VALUES(?,?,?)")
-                ->execute([$menuId, $qty, $total]);
+            $total = (float)$item['price'] * $qty;
+            $pdo->prepare("INSERT INTO sales(menu_item_id, quantity, total, user_id) VALUES(?,?,?,?)")
+                ->execute([$menuId, $qty, $total, $currentUserId]);
 
-            // deduct every ingredient in the recipe
+            // Deduct every ingredient in the recipe
             $upd = $pdo->prepare("UPDATE ingredients SET quantity = quantity - ? WHERE id = ?");
             foreach ($recipe as $r) {
-                $upd->execute([(int)$r['per_serving'] * $qty, $r['ingredient_id']]);
+                $upd->execute([(float)$r['per_serving'] * $qty, $r['ingredient_id']]);
             }
             $pdo->commit();
             $_SESSION['flash'] = 'Sale recorded. All recipe ingredients were deducted from stock.';
@@ -173,13 +210,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($description === '' || $amount <= 0) {
                 throw new Exception('Enter an expense description and an amount greater than zero.');
             }
-            $pdo->prepare("INSERT INTO expenses(description, amount, expense_date) VALUES(?,?,?)")
-                ->execute([$description, $amount, $date]);
+            $pdo->prepare("INSERT INTO expenses(description, amount, expense_date, user_id) VALUES(?,?,?,?)")
+                ->execute([$description, $amount, $date, $currentUserId]);
             $_SESSION['flash'] = 'Expense recorded.';
 
         } elseif ($action === 'delete_ingredient') {
             $id = (int)($_POST['id'] ?? 0);
-            // Prevent deleting ingredients already used by recipes or purchases.
             $check = $pdo->prepare("SELECT (SELECT COUNT(*) FROM menu_item_ingredients WHERE ingredient_id = ?) + (SELECT COUNT(*) FROM purchases WHERE ingredient_id = ?)");
             $check->execute([$id, $id]);
             if ((int)$check->fetchColumn() > 0) {
@@ -205,10 +241,10 @@ if (!in_array($page, $allowed, true)) {
 
 $ingredients = $pdo->query("SELECT * FROM ingredients ORDER BY name")->fetchAll();
 
-// menu items with their full recipes
+// Menu items with their full recipes
 $menuItems = $pdo->query("SELECT * FROM menu_items ORDER BY name")->fetchAll();
 $recipeRows = $pdo->query("
-    SELECT r.menu_item_id, r.ingredient_id, r.quantity, i.name, i.unit, i.quantity AS stock
+    SELECT r.menu_item_id, r.ingredient_id, r.quantity, i.name, i.unit, i.grams_per_piece, i.quantity AS stock
     FROM menu_item_ingredients r
     JOIN ingredients i ON i.id = r.ingredient_id
     ORDER BY i.name")->fetchAll();
@@ -221,18 +257,18 @@ foreach ($menuItems as &$m) {
     $m['recipe'] = $recipes[$m['id']] ?? [];
     $servings = null;
     foreach ($m['recipe'] as $r) {
-        $can = (int)$r['quantity'] > 0 ? floor((int)$r['stock'] / (int)$r['quantity']) : 0;
+        $can = (float)$r['quantity'] > 0 ? floor((float)$r['stock'] / (float)$r['quantity']) : 0;
         $servings = $servings === null ? $can : min($servings, $can);
     }
     $m['servings_left'] = (int)($servings ?? 0);
 }
 unset($m);
 
-$sales = $pdo->query("SELECT s.*, m.name AS item_name FROM sales s JOIN menu_items m ON m.id = s.menu_item_id ORDER BY s.sold_at")->fetchAll();
-$expenses = $pdo->query("SELECT * FROM expenses ORDER BY expense_date DESC, id DESC")->fetchAll();
+$sales = $pdo->query("SELECT s.*, m.name AS item_name, u.name AS user_name FROM sales s JOIN menu_items m ON m.id = s.menu_item_id LEFT JOIN users u ON u.id = s.user_id ORDER BY s.sold_at")->fetchAll();
+$expenses = $pdo->query("SELECT x.*, u.name AS user_name FROM expenses x LEFT JOIN users u ON u.id = x.user_id ORDER BY x.expense_date DESC, x.id DESC")->fetchAll();
 
-$todaySales = (int)$pdo->query("SELECT COALESCE(SUM(total), 0) FROM sales WHERE DATE(sold_at) = CURDATE()")->fetchColumn();
-$todayExpenses = (int)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date = CURDATE()")->fetchColumn();
+$todaySales = (float)$pdo->query("SELECT COALESCE(SUM(total), 0) FROM sales WHERE DATE(sold_at) = CURDATE()")->fetchColumn();
+$todayExpenses = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date = CURDATE()")->fetchColumn();
 $ingredientCount = count($ingredients);
 $lowStock = linearReorderSearch($ingredients);
 
@@ -244,7 +280,7 @@ foreach ($ingredients as $ingredient) {
 $heap = new MinHeap();
 foreach ($lowStock as $ingredient) {
     $heap->insert([
-        'priority' => (int)$ingredient['quantity'],
+        'priority' => (float)$ingredient['quantity'],
         'name' => $ingredient['name'],
         'quantity' => $ingredient['quantity'],
         'unit' => $ingredient['unit']
@@ -255,8 +291,8 @@ while (!$heap->isEmpty()) {
     $urgentAlerts[] = $heap->removeMin();
 }
 
-$allTimeSales = (int)$pdo->query("SELECT COALESCE(SUM(total), 0) FROM sales")->fetchColumn();
-$allTimeExpenses = (int)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses")->fetchColumn();
+$allTimeSales = (float)$pdo->query("SELECT COALESCE(SUM(total), 0) FROM sales")->fetchColumn();
+$allTimeExpenses = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses")->fetchColumn();
 $topProducts = $pdo->query("SELECT m.name, SUM(s.quantity) AS units, SUM(s.total) AS revenue FROM sales s JOIN menu_items m ON m.id = s.menu_item_id GROUP BY m.id ORDER BY units DESC LIMIT 10")->fetchAll();
 
 $flash = $_SESSION['flash'] ?? '';
@@ -319,7 +355,7 @@ unset($_SESSION['error']);
             <div class="alert danger"><?= e($error) ?></div>
         <?php endif; ?>
 
-      <?php if ($page === 'dashboard'): ?>
+        <?php if ($page === 'dashboard'): ?>
             <?php
                 $hour = (int)date('G');
                 $greeting = $hour < 12 ? 'Good morning' : ($hour < 18 ? 'Good afternoon' : 'Good evening');
@@ -409,13 +445,15 @@ unset($_SESSION['error']);
                         <label class="wide">Ingredient name<input name="name" required placeholder="Chicken"></label>
                         <label>Unit
                             <select name="unit" required>
-                                <option value="pcs" selected>pcs</option>
-                                <option value="kg">kg</option>
+                                <option value="kg">kilograms (kg)</option>
+                                <option value="g">grams (g)</option>
+                                <option value="pcs" selected>pieces (pcs)</option>
                                 <option value="packs">packs</option>
                             </select>
                         </label>
-                        <label>Starting quantity<input type="number" name="quantity" min="0" step="0.01" required></label>
-                        <label class="wide">Reorder level<input type="number" name="reorder_level" min="0" step="0.01" value="5" required></label>
+                        <label>Starting quantity<input type="number" name="quantity" min="0" step="any" required></label>
+                        <label class="wide">Grams per piece (optional)<input type="number" name="grams_per_piece" min="0" step="any" placeholder="e.g. 100 (1 onion = 100 g)"></label>
+                        <label class="wide">Reorder level<input type="number" name="reorder_level" min="0" step="any" value="5" required></label>
                         <button class="btn primary wide">Save ingredient</button>
                     </form>
                 </section>
@@ -444,7 +482,7 @@ unset($_SESSION['error']);
                                         <td><b><?= e($i['name']) ?></b></td>
                                         <td><?= e(qty($i['quantity'], $i['unit'])) ?> <?= e($i['unit']) ?></td>
                                         <td><?= e(qty($i['reorder_level'], $i['unit'])) ?></td>
-                                        <td><?= (int)$i['quantity'] <= (int)$i['reorder_level'] ? '<span class="pill warning">Low stock</span>' : '<span class="pill good">In stock</span>' ?></td>
+                                        <td><?= (float)$i['quantity'] <= (float)$i['reorder_level'] ? '<span class="pill warning">Low stock</span>' : '<span class="pill good">In stock</span>' ?></td>
                                         <td>
                                             <form method="POST" onsubmit="return confirm('Delete this ingredient?')">
                                                 <input type="hidden" name="action" value="delete_ingredient">
@@ -479,22 +517,30 @@ unset($_SESSION['error']);
                     <form method="POST" class="form-grid">
                         <input type="hidden" name="action" value="add_menu">
                         <input type="hidden" name="return_page" value="menu">
-                        <label class="wide">Menu item name<input name="name" required placeholder="e.g. Pork chop w/ Java Rice"></label>
+                        <label class="wide">Menu item name<input name="name" required placeholder="e.g. Hungarian with Java Rice"></label>
                         <label class="wide">Selling price per serving (₱)<input type="number" name="price" min="0.01" step="0.01" required></label>
 
                         <div class="wide" id="recipeRows">
                             <div class="recipe-row form-grid">
                                 <label>Ingredient
-                                    <select name="ingredient_id[]" required>
+                                    <select name="ingredient_id[]" required onchange="setDefaultUnit(this); updateConversion(this)">
                                         <option value="">Choose ingredient</option>
                                         <?php foreach ($ingredients as $i): ?>
-                                            <option value="<?= $i['id'] ?>"><?= e($i['name']) ?> (<?= e($i['unit']) ?>)</option>
+                                            <option value="<?= $i['id'] ?>" data-unit="<?= e(unitKey($i['unit'])) ?>" data-gpp="<?= e($i['grams_per_piece'] ?? '') ?>"><?= e($i['name']) ?> (<?= e($i['unit']) ?>)</option>
                                         <?php endforeach; ?>
                                     </select>
                                 </label>
                                 <label>Amount per serving
-                                    <input type="number" name="ingredient_qty[]" min="0.01" step="0.01" required>
+                                    <input type="number" name="ingredient_qty[]" min="0.0001" step="any" required placeholder="e.g. 1" oninput="updateConversion(this)">
                                 </label>
+                                <label>Unit
+                                    <select name="ingredient_unit[]" required onchange="updateConversion(this)">
+                                        <option value="g">grams (g)</option>
+                                        <option value="kg">kilo (kg)</option>
+                                        <option value="pcs">pieces (pcs)</option>
+                                    </select>
+                                </label>
+                                <small class="conv-preview wide"></small>
                             </div>
                         </div>
                         <button type="button" class="btn wide" onclick="addRecipeRow()">+ Add another ingredient</button>
@@ -527,7 +573,7 @@ unset($_SESSION['error']);
                                         <td><?= money($m['price']) ?></td>
                                         <td class="recipe-cell">
                                             <?php foreach ($m['recipe'] as $r): ?>
-                                                <?= e(qty($r['quantity'], $r['unit'])) ?> <?= e($r['unit']) ?> <?= e($r['name']) ?><br>
+                                                <?= e(recipeAmount($r['quantity'], $r['unit'], $r['grams_per_piece'])) ?> <?= e($r['name']) ?><br>
                                             <?php endforeach; ?>
                                             <?php if (!$m['recipe']): ?>
                                                 <span class="muted">No ingredients set</span>
@@ -568,7 +614,7 @@ unset($_SESSION['error']);
                                 <?php endforeach; ?>
                             </select>
                         </label>
-                        <label>Quantity<input type="number" name="quantity" min="0.01" step="0.01" required></label>
+                        <label>Quantity<input type="number" name="quantity" min="0.0001" step="any" required></label>
                         <label>Unit cost (₱)<input type="number" name="unit_cost" min="0" step="0.01" value="0" required></label>
                         <button class="btn primary wide">Save purchase & update stock</button>
                     </form>
@@ -622,7 +668,7 @@ unset($_SESSION['error']);
                                 <?php endforeach; ?>
                             </select>
                         </label>
-                        <label class="wide">Quantity<input type="number" name="quantity" min="0.01" step="0.01" required></label>
+                        <label class="wide">Quantity sold (servings)<input type="number" name="quantity" min="0.0001" step="any" required></label>
                         <button class="btn primary wide">Complete sale</button>
                     </form>
                 </section>
@@ -642,6 +688,7 @@ unset($_SESSION['error']);
                                     <th>Qty</th>
                                     <th>Total</th>
                                     <th>Date</th>
+                                    <th>Recorded by</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -651,10 +698,11 @@ unset($_SESSION['error']);
                                         <td><?= e(qty($s['quantity'], 'pcs')) ?></td>
                                         <td><?= money($s['total']) ?></td>
                                         <td><?= e(date('M j, H:i', strtotime($s['sold_at']))) ?></td>
+                                        <td><?= e($s['user_name'] ?? '-') ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$sales): ?>
-                                    <tr><td colspan="4" class="empty">No sales recorded yet.</td></tr>
+                                    <tr><td colspan="5" class="empty">No sales recorded yet.</td></tr>
                                 <?php endif; ?>
                             </tbody>
                         </table>
@@ -695,6 +743,7 @@ unset($_SESSION['error']);
                                     <th>Description</th>
                                     <th>Amount</th>
                                     <th>Date</th>
+                                    <th>Recorded by</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -703,10 +752,11 @@ unset($_SESSION['error']);
                                         <td><?= e($x['description']) ?></td>
                                         <td><?= money($x['amount']) ?></td>
                                         <td><?= e($x['expense_date']) ?></td>
+                                        <td><?= e($x['user_name'] ?? '-') ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$expenses): ?>
-                                    <tr><td colspan="3" class="empty">No expenses recorded.</td></tr>
+                                    <tr><td colspan="4" class="empty">No expenses recorded.</td></tr>
                                 <?php endif; ?>
                             </tbody>
                         </table>
@@ -726,7 +776,7 @@ unset($_SESSION['error']);
                 <div class="panel-head">
                     <div>
                         <h3>Sales report by period</h3>
-                        <p>Here where you can find the best-selling product and your sales record.</p>
+                        <p>Binary search filters sorted sale dates; merge sort ranks products by units sold.</p>
                     </div>
                 </div>
                 <div class="filter-row">
@@ -759,8 +809,8 @@ unset($_SESSION['error']);
                 return [
                     'date' => date('Y-m-d', strtotime($s['sold_at'])),
                     'name' => $s['item_name'],
-                    'quantity' => (int)$s['quantity'],
-                    'total' => (int)$s['total']
+                    'quantity' => (float)$s['quantity'],
+                    'total' => (float)$s['total']
                 ];
             }, $sales), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
             </script>
